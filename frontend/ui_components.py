@@ -154,6 +154,17 @@ class UIComponents:
                 opacity: 0.9;
             }
 
+            /* Pending note under user bubble */
+            .pending-note {
+                margin-left: 56px; /* avatar (44) + gap (12) */
+                max-width: 78%;
+                text-align: right;
+                font-size: 12px;
+                color: #64748b;
+                opacity: 0.9;
+                margin-top: 6px;
+            }
+
             /* Input area */
             .input-area {
                 margin-top: 18px;
@@ -344,6 +355,7 @@ class UIComponents:
           - response (ai text)
           - thinking (optional bool)
           - timestamp (optional ISO string or formatted)
+          - pending (optional bool) when waiting for AI response
         """
         st.markdown('<div class="chat-wrapper">', unsafe_allow_html=True)
         st.markdown('<div class="chat-container">', unsafe_allow_html=True)
@@ -357,9 +369,17 @@ class UIComponents:
                 # render user entry (prompt)
                 UIComponents.render_chat_message(msg["prompt"], is_user=True, timestamp=user_ts)
 
+                # If pending, show small right-aligned note under user bubble
+                if msg.get("pending") and not msg.get("response"):
+                    st.markdown(
+                        '<div class="pending-note">⏳ Waiting for the response…</div>',
+                        unsafe_allow_html=True,
+                    )
+
                 # render ai response
-                model_display = "Thinking Mode" if msg.get("thinking") else "Normal Mode"
-                UIComponents.render_chat_message(msg["response"], is_user=False, model=model_display, timestamp=ai_ts)
+                if msg.get("response"):
+                    model_display = "Thinking Mode" if msg.get("thinking") else "Normal Mode"
+                    UIComponents.render_chat_message(msg["response"], is_user=False, model=model_display, timestamp=ai_ts)
 
             # auto scroll to bottom
             st.markdown(
@@ -463,7 +483,8 @@ class UIComponents:
     @staticmethod
     def render_loading():
         """Render loading spinner."""
-        return st.spinner("🔄 Generating response...")
+        # Keep for compatibility, but prefer inline pending note in chat.
+        return st.spinner("🔄 Working…")
 
     @staticmethod
     def render_connection_status(is_connected: bool):

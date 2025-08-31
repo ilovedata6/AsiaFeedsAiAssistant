@@ -7,6 +7,7 @@ This script should be used with streamlit run command:
 
 import streamlit as st
 import logging
+from datetime import datetime
 import sys
 import os
 
@@ -30,9 +31,13 @@ st.set_page_config(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize session state
-if 'responses' not in st.session_state:
-    st.session_state.responses = []
+# Initialize session state for chat
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "awaiting_index" not in st.session_state:
+    st.session_state.awaiting_index = None
+if "is_processing" not in st.session_state:
+    st.session_state.is_processing = False
 
 # Initialize services
 @st.cache_resource
@@ -49,48 +54,44 @@ def check_backend_connection(api_client: APIClient) -> bool:
     """Check if backend is available."""
     return api_client.health_check()
 
-def handle_generate_request(api_client: APIClient, ui: UIComponents, prompt: str, model: str, thinking: bool):
-    """
-    Handle generation request.
-    
-    Args:
-        api_client: API client instance
-        ui: UI components instance
-        prompt: User prompt
-        model: Selected model
-        thinking: Thinking mode flag
-    """
+def process_pending_if_any(api_client: APIClient):
+    idx = st.session_state.awaiting_index
+    if idx is None or st.session_state.is_processing:
+        return
+    if idx < 0 or idx >= len(st.session_state.messages):
+        st.session_state.awaiting_index = None
+        return
+    st.session_state.is_processing = True
+    item = st.session_state.messages[idx]
     try:
-        with ui.render_loading():
-            response_data = api_client.generate_response(
-                prompt=prompt,
-                model=model,
-                thinking=thinking
-            )
-            
-            response_text = response_data.get("response", "No response received")
-            
-            # Store response in session state
-            st.session_state.responses.append({
-                "prompt": prompt,
-                "response": response_text,
-                "model": model,
-                "thinking": thinking
-            })
-            
+        response_data = api_client.generate_response(
+            prompt=item.get("prompt", ""),
+            model=item.get("model", "llama3.2:3b"),
+            thinking=item.get("thinking", False),
+        )
+        response_text = response_data.get("response", "")
+        st.session_state.messages[idx]["response"] = response_text
+        st.session_state.messages[idx]["pending"] = False
+        if not st.session_state.messages[idx].get("timestamp"):
+            st.session_state.messages[idx]["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     except Exception as e:
         logger.error(f"Generation failed: {e}")
-        ui.render_error(str(e))
+        st.session_state.messages[idx]["response"] = f"❌ Error: {e}"
+        st.session_state.messages[idx]["pending"] = False
+    finally:
+        st.session_state.awaiting_index = None
+        st.session_state.is_processing = False
+        st.rerun()
 
 def render_sidebar(api_client: APIClient, ui: UIComponents):
     """Render sidebar with app info and connection status."""
     with st.sidebar:
         st.markdown("## 📊 App Status")
-        
+
         # Connection status
         is_connected = check_backend_connection(api_client)
         ui.render_connection_status(is_connected)
-        
+
         st.markdown("---")
         st.markdown("## ℹ️ About")
         st.markdown("""
@@ -98,19 +99,21 @@ def render_sidebar(api_client: APIClient, ui: UIComponents):
         - **Backend**: FastAPI (Port 8000)
         - **Frontend**: Streamlit (Port 8501)
         - **AI Models**: Ollama (Local)
-        
+
         **Models Available:**
         - Llama3.2:3b (Normal mode)
         - Qwen3:4b (Thinking mode)
         """)
-        
-        if st.session_state.responses:
+
+        if st.session_state.messages:
             st.markdown("---")
             st.markdown("## 📈 Chat History")
-            st.markdown(f"Total responses: {len(st.session_state.responses)}")
-            
+            st.markdown(f"Total messages: {len(st.session_state.messages)}")
+
             if st.button("Clear History"):
-                st.session_state.responses = []
+                st.session_state.messages = []
+                st.session_state.awaiting_index = None
+                st.session_state.is_processing = False
                 st.rerun()
 
 def main():
@@ -118,37 +121,37 @@ def main():
     # Get service instances
     api_client = get_api_client()
     ui = get_ui_components()
-    
+
     # Render sidebar
     render_sidebar(api_client, ui)
-    
-    # Render main interface
+
+    # Header and model selection
     ui.render_header()
-    
-    # Model selection
     model, thinking = ui.render_model_selector()
-    
-    # Render chat container with existing messages
-    st.write(f"Debug: Messages in session state: {len(st.session_state.responses)}")
-    if st.session_state.responses:
-        st.write(f"Last message: {st.session_state.responses[-1]['prompt'][:50]}...")
-    ui.render_chat_container(st.session_state.responses)
-    
-    # Render chat input at the bottom
-    prompt, submit_clicked = ui.render_chat_input()
-    
-    # Handle submit
-    if submit_clicked:
-        if prompt.strip():
-            # Store the message before clearing
-            user_message = prompt.strip()
-            # Clear the input by deleting the widget's value from session state
-            if "chat_input" in st.session_state:
-                del st.session_state["chat_input"]
-            handle_generate_request(api_client, ui, user_message, model, thinking)
-            st.rerun()  # Rerun to clear input and show new message
-        else:
+
+    # Chat container
+    ui.render_chat_container(st.session_state.messages)
+
+    # Chat input
+    text, submitted = ui.render_chat_input()
+    if submitted:
+        clean = (text or "").strip()
+        if not clean:
             st.warning("⚠️ Please enter a message before sending.")
+        else:
+            st.session_state.messages.append({
+                "prompt": clean,
+                "response": "",
+                "model": model,
+                "thinking": thinking,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "pending": True,
+            })
+            st.session_state.awaiting_index = len(st.session_state.messages) - 1
+            st.rerun()
+
+    # Process any pending call after rendering UI
+    process_pending_if_any(api_client)
 
 # Run the main function
 main()

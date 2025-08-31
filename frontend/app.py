@@ -1,5 +1,6 @@
 import streamlit as st
 import logging
+from datetime import datetime
 from frontend.api_client import APIClient
 from frontend.ui_components import UIComponents
 
@@ -15,9 +16,13 @@ st.set_page_config(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize session state
-if 'responses' not in st.session_state:
-    st.session_state.responses = []
+# Initialize session state for chat UI
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "awaiting_index" not in st.session_state:
+    st.session_state.awaiting_index = None
+if "is_processing" not in st.session_state:
+    st.session_state.is_processing = False
 
 
 class AIAssistantApp:
@@ -31,39 +36,39 @@ class AIAssistantApp:
         """Check if backend is available."""
         return self.api_client.health_check()
     
-    def handle_generate_request(self, prompt: str, model: str, thinking: bool):
-        """
-        Handle generation request.
-        
-        Args:
-            prompt: User prompt
-            model: Selected model
-            thinking: Thinking mode flag
-        """
+    def _process_pending_if_any(self):
+        """If there's a pending chat message, call backend and update it."""
+        idx = st.session_state.awaiting_index
+        if idx is None or st.session_state.is_processing:
+            return
+        if idx < 0 or idx >= len(st.session_state.messages):
+            # reset invalid state
+            st.session_state.awaiting_index = None
+            return
+
+        st.session_state.is_processing = True
+        item = st.session_state.messages[idx]
         try:
-            with self.ui.render_loading():
-                response_data = self.api_client.generate_response(
-                    prompt=prompt,
-                    model=model,
-                    thinking=thinking
-                )
-                
-                response_text = response_data.get("response", "No response received")
-                
-                # Store response in session state
-                st.session_state.responses.append({
-                    "prompt": prompt,
-                    "response": response_text,
-                    "model": model,
-                    "thinking": thinking
-                })
-                
-                # Display response
-                self.ui.render_response(response_text)
-                
+            response_data = self.api_client.generate_response(
+                prompt=item.get("prompt", ""),
+                model=item.get("model", "llama3.2:3b"),
+                thinking=item.get("thinking", False),
+            )
+            response_text = response_data.get("response", "")
+
+            # update the message
+            st.session_state.messages[idx]["response"] = response_text
+            st.session_state.messages[idx]["pending"] = False
+            # optional: add/refresh timestamp for AI
+            st.session_state.messages[idx]["timestamp"] = item.get("timestamp") or datetime.now().strftime("%Y-%m-%d %H:%M")
         except Exception as e:
             logger.error(f"Generation failed: {e}")
-            self.ui.render_error(str(e))
+            st.session_state.messages[idx]["response"] = f"❌ Error: {e}"
+            st.session_state.messages[idx]["pending"] = False
+        finally:
+            st.session_state.awaiting_index = None
+            st.session_state.is_processing = False
+            st.rerun()
     
     def render_sidebar(self):
         """Render sidebar with app info and connection status."""
@@ -87,13 +92,15 @@ class AIAssistantApp:
             - Qwen3:4b (Thinking mode)
             """)
             
-            if st.session_state.responses:
+            if st.session_state.messages:
                 st.markdown("---")
                 st.markdown(f"## 📈 Chat History")
-                st.markdown(f"Total responses: {len(st.session_state.responses)}")
-                
+                st.markdown(f"Total messages: {len(st.session_state.messages)}")
+
                 if st.button("Clear History"):
-                    st.session_state.responses = []
+                    st.session_state.messages = []
+                    st.session_state.awaiting_index = None
+                    st.session_state.is_processing = False
                     st.rerun()
     
     def run(self):
@@ -104,29 +111,32 @@ class AIAssistantApp:
         # Render main interface
         self.ui.render_header()
         
-        # Model selection
+        # Model selection (kept)
         model, thinking = self.ui.render_model_selector()
-        
-        # Prompt input
-        prompt = self.ui.render_prompt_input()
-        
-        # Submit button
-        if self.ui.render_submit_button():
-            if prompt.strip():
-                self.handle_generate_request(prompt, model, thinking)
+
+        # Chat container
+        self.ui.render_chat_container(st.session_state.messages)
+
+        # Chat input (send button + textarea)
+        text, submitted = self.ui.render_chat_input()
+        if submitted:
+            clean = (text or "").strip()
+            if not clean:
+                st.warning("Please enter a message.")
             else:
-                st.warning("Please enter a prompt before submitting.")
-        
-        # Display previous responses
-        if st.session_state.responses:
-            st.markdown("---")
-            st.markdown("## 📝 Previous Responses")
-            
-            for i, response_data in enumerate(reversed(st.session_state.responses)):
-                with st.expander(f"Response {len(st.session_state.responses) - i}: {response_data['prompt'][:50]}..."):
-                    st.markdown(f"**Model**: {response_data['model']} {'(Thinking Mode)' if response_data['thinking'] else ''}")
-                    st.markdown(f"**Prompt**: {response_data['prompt']}")
-                    st.markdown(f"**Response**: {response_data['response']}")
+                st.session_state.messages.append({
+                    "prompt": clean,
+                    "response": "",
+                    "model": model,
+                    "thinking": thinking,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "pending": True,
+                })
+                st.session_state.awaiting_index = len(st.session_state.messages) - 1
+                st.rerun()
+
+        # If there's a pending request, process it now (after UI renders the pending note)
+        self._process_pending_if_any()
 
 
 def main():
