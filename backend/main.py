@@ -4,6 +4,7 @@ import logging
 from .models import GenerateRequest, GenerateResponse
 from .services import ModelSelector
 from .ollama_client import OllamaService
+from config import FRONTEND_HOST, FRONTEND_PORT, API_HOST, API_PORT
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +20,11 @@ app = FastAPI(
 # Add CORS middleware to allow Streamlit frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8501", "http://127.0.0.1:8501"],
+    allow_origins=[
+        f"http://{FRONTEND_HOST}:{FRONTEND_PORT}",
+        f"http://127.0.0.1:{FRONTEND_PORT}",
+        f"http://localhost:{FRONTEND_PORT}",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -90,4 +95,4 @@ async def generate(request: GenerateRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=API_HOST, port=API_PORT)

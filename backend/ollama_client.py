@@ -2,14 +2,16 @@ import httpx
 from typing import Dict, Any
 from .services import AIModelService
 from .models import OllamaRequest, OllamaResponse
+from config import OLLAMA_BASE_URL, OLLAMA_TIMEOUT
 
 
 class OllamaService(AIModelService):
     """Service to interact with Ollama API."""
     
-    def __init__(self, base_url: str = "http://localhost:11434"):
-        self.base_url = base_url
-        self.generate_url = f"{base_url}/api/generate"
+    def __init__(self, base_url: str | None = None, timeout: float | None = None):
+        self.base_url = base_url or OLLAMA_BASE_URL
+        self.generate_url = f"{self.base_url}/api/generate"
+        self.timeout = float(timeout if timeout is not None else OLLAMA_TIMEOUT)
     
     async def generate_response(self, prompt: str, model: str) -> str:
         """
@@ -31,8 +33,8 @@ class OllamaService(AIModelService):
             prompt=prompt,
             stream=False
         )
-        
-        async with httpx.AsyncClient(timeout=60.0) as client:
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.post(
                     self.generate_url,

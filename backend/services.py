@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any
+from config import DEFAULT_MODEL, THINKING_MODEL
 
 
 class AIModelService(ABC):
@@ -27,9 +28,9 @@ class ModelSelector:
             Selected model name
         """
         if thinking:
-            return "qwen3:4b"
-        
+            return THINKING_MODEL
+
         if requested_model:
             return requested_model
-            
-        return "llama3.2:3b"
+
+        return DEFAULT_MODEL

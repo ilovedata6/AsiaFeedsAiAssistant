@@ -1,6 +1,7 @@
 import requests
 from typing import Dict, Any, Optional
 import logging
+from config import API_PORT, API_TIMEOUT, API_HEALTH_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -8,9 +9,17 @@ logger = logging.getLogger(__name__)
 class APIClient:
     """Client to interact with the FastAPI backend."""
     
-    def __init__(self, base_url: str = "http://localhost:8000"):
-        self.base_url = base_url
+    def __init__(self, base_url: str | None = None, host: str = "http://localhost", port: int | None = None):
+        # Build base URL from config unless explicitly provided
+        if base_url:
+            self.base_url = base_url
+        else:
+            use_port = port if port is not None else API_PORT
+            self.base_url = f"{host}:{use_port}"
         self.generate_url = f"{base_url}/generate"
+        # Default timeouts from config
+        self.request_timeout = API_TIMEOUT
+        self.health_timeout = API_HEALTH_TIMEOUT
     
     def generate_response(
         self, 
@@ -43,7 +52,7 @@ class APIClient:
                 self.generate_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=60
+                timeout=self.request_timeout
             )
             response.raise_for_status()
             return response.json()
@@ -60,7 +69,7 @@ class APIClient:
             True if healthy, False otherwise
         """
         try:
-            response = requests.get(f"{self.base_url}/health", timeout=5)
+            response = requests.get(f"{self.base_url}/health", timeout=self.health_timeout)
             return response.status_code == 200
         except requests.RequestException:
             return False

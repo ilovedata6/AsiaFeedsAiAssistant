@@ -4,6 +4,7 @@ from typing import Dict, Any
 import logging
 from .api_client import APIClient
 from datetime import datetime
+from config import DEFAULT_MODEL, THINKING_MODEL
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -260,11 +261,11 @@ class UIComponents:
             # concise model info
             if model_option and "Normal" in model_option:
                 st.caption("🚀 Fast responses")
-                model = "llama3.2:3b"
+                model = DEFAULT_MODEL
                 thinking = False
             else:
                 st.caption("🧠 Detailed thinking")
-                model = "qwen3:4b"
+                model = THINKING_MODEL
                 thinking = True
 
         return model, thinking

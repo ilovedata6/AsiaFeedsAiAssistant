@@ -4,6 +4,7 @@
 API_HOST = "0.0.0.0"
 API_PORT = 8000
 API_TIMEOUT = 200
+API_HEALTH_TIMEOUT = 5
 
 # Ollama Settings
 OLLAMA_BASE_URL = "http://localhost:11434"
