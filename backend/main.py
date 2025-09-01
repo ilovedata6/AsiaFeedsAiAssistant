@@ -5,6 +5,7 @@ from .models import GenerateRequest, GenerateResponse
 from .services import ModelSelector
 from .ollama_client import OllamaService
 from config import FRONTEND_HOST, FRONTEND_PORT, API_HOST, API_PORT
+from fastapi.responses import StreamingResponse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -91,6 +92,29 @@ async def generate(request: GenerateRequest):
             status_code=500,
             detail=f"Failed to generate response: {str(e)}"
         )
+
+
+@app.post("/generate_stream")
+async def generate_stream(request: GenerateRequest):
+    """Stream tokens for a generation in real-time."""
+    try:
+        selected_model = model_selector.select_model(
+            thinking=request.thinking,
+            requested_model=request.model,
+        )
+
+        async def token_generator():
+            async for token in ollama_service.stream_response(
+                prompt=request.prompt,
+                model=selected_model,
+            ):
+                # Server-Sent Events (SSE) format
+                yield f"data: {token}\n\n"
+
+        return StreamingResponse(token_generator(), media_type="text/event-stream")
+    except Exception as e:
+        logger.error(f"Stream generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

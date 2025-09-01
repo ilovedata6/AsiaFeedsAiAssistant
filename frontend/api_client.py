@@ -2,6 +2,7 @@ import requests
 from typing import Dict, Any, Optional
 import logging
 from config import API_PORT, API_TIMEOUT, API_HEALTH_TIMEOUT
+from requests import Response
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,11 @@ class APIClient:
         else:
             use_port = port if port is not None else API_PORT
             self.base_url = f"{host}:{use_port}"
-        self.generate_url = f"{base_url}/generate"
+        
+        # Endpoints
+        self.generate_url = f"{self.base_url}/generate"
+        self.generate_stream_url = f"{self.base_url}/generate_stream"
+
         # Default timeouts from config
         self.request_timeout = API_TIMEOUT
         self.health_timeout = API_HEALTH_TIMEOUT
@@ -60,6 +65,31 @@ class APIClient:
         except requests.RequestException as e:
             logger.error(f"API request failed: {e}")
             raise
+
+    def stream_response(self, prompt: str, model: str, thinking: bool = False):
+        """Generator yielding text chunks from backend SSE."""
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "thinking": thinking,
+        }
+        try:
+            with requests.post(
+                self.generate_stream_url,
+                json=payload,
+                headers={"Accept": "text/event-stream", "Content-Type": "application/json"},
+                stream=True,
+                timeout=self.request_timeout,
+            ) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        yield line[len("data: "):]
+        except requests.RequestException as e:
+            logger.error(f"Streaming API request failed: {e}")
+            yield f"[error: {e}]"
     
     def health_check(self) -> bool:
         """

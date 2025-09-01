@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from frontend.api_client import APIClient
 from frontend.ui_components import UIComponents
+import html
 
 # Configure page
 st.set_page_config(
@@ -54,22 +55,37 @@ def process_pending_if_any(api_client: APIClient):
         return
     st.session_state.is_processing = True
     item = st.session_state.messages[idx]
+    model = item.get("model", "llama3.2:3b")
+    thinking = item.get("thinking", False)
+    ts = item.get("timestamp") or datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    placeholder = st.empty()
+    accumulated = ""
     try:
-        response_data = api_client.generate_response(
-            prompt=item.get("prompt", ""),
-            model=item.get("model", "llama3.2:3b"),
-            thinking=item.get("thinking", False),
-        )
-        response_text = response_data.get("response", "")
-        st.session_state.messages[idx]["response"] = response_text
-        st.session_state.messages[idx]["pending"] = False
-        if not st.session_state.messages[idx].get("timestamp"):
-            st.session_state.messages[idx]["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        for chunk in api_client.stream_response(prompt=item.get("prompt", ""), model=model, thinking=thinking):
+            if not chunk:
+                continue
+            accumulated += chunk
+            safe = html.escape(accumulated).replace("\n", "<br>")
+            model_display = "Thinking Mode" if thinking else "Normal Mode"
+            placeholder.markdown(
+                f"""
+                <div class=\"msg-row ai\">
+                  <div class=\"bubble ai\">
+                    <div class=\"meta\"><div class=\"who\">🤖 AI Assistant • {model_display}</div><span class=\"time\">• {ts}</span></div>
+                    <div>{safe}</div>
+                  </div>
+                  <div class=\"avatar ai\">AI</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
     except Exception as e:
-        logger.error(f"Generation failed: {e}")
-        st.session_state.messages[idx]["response"] = f"❌ Error: {e}"
-        st.session_state.messages[idx]["pending"] = False
+        logger.error(f"Streaming failed: {e}")
+        accumulated = accumulated or f"❌ Error: {e}"
     finally:
+        st.session_state.messages[idx]["response"] = accumulated
+        st.session_state.messages[idx]["pending"] = False
         st.session_state.awaiting_index = None
         st.session_state.is_processing = False
         st.rerun()

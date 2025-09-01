@@ -3,6 +3,7 @@ from typing import Dict, Any
 from .services import AIModelService
 from .models import OllamaRequest, OllamaResponse
 from config import OLLAMA_BASE_URL, OLLAMA_TIMEOUT
+import json
 
 
 class OllamaService(AIModelService):
@@ -31,7 +32,7 @@ class OllamaService(AIModelService):
         request_data = OllamaRequest(
             model=model,
             prompt=prompt,
-            stream=False
+            stream=True
         )
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -54,3 +55,39 @@ class OllamaService(AIModelService):
                 raise httpx.RequestError(f"Failed to connect to Ollama: {e}")
             except ValueError as e:
                 raise ValueError(f"Invalid response from Ollama: {e}")
+
+    async def stream_response(self, prompt: str, model: str):
+        """Async generator that yields tokens from Ollama as they stream."""
+        request_data = OllamaRequest(
+            model=model,
+            prompt=prompt,
+            stream=True
+        )
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                async with client.stream(
+                    "POST",
+                    self.generate_url,
+                    json=request_data.model_dump(),
+                    headers={"Content-Type": "application/json"},
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            # Some Ollama builds may send plain text; yield raw line
+                            yield line
+                            continue
+                        # Standard Ollama streaming includes 'response' and 'done'
+                        if isinstance(data, dict):
+                            if data.get("response"):
+                                yield data["response"]
+                            if data.get("done"):
+                                break
+            except httpx.RequestError as e:
+                # Surface a short error token to front-end
+                yield f"[connection error: {e}]"

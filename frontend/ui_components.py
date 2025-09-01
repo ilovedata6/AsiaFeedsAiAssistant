@@ -373,7 +373,7 @@ class UIComponents:
                 # If pending, show small right-aligned note under user bubble
                 if msg.get("pending") and not msg.get("response"):
                     st.markdown(
-                        '<div class="pending-note">⏳ Waiting for the response…</div>',
+                        '<div class="pending-note">⏳ Waiting for the response to complete…</div>',
                         unsafe_allow_html=True,
                     )
 
